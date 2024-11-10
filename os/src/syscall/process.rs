@@ -1,8 +1,12 @@
 //! Process management syscalls
 use crate::{
-    config::{MAX_SYSCALL_NUM, PAGE_SIZE}, mm::{translated_byte_buffer, MapPermission, VirtAddr}, task::{
-        change_program_brk, current_user_token, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, TASK_MANAGER
-    }, timer::{get_time_us, MICRO_PER_SEC}
+    config::{MAX_SYSCALL_NUM, PAGE_SIZE},
+    mm::{translated_byte_buffer, MapPermission, VirtAddr},
+    task::{
+        change_program_brk, current_user_token, exit_current_and_run_next,
+        suspend_current_and_run_next, TaskStatus, TASK_MANAGER,
+    },
+    timer::{get_time_us, MICRO_PER_SEC},
 };
 
 #[repr(C)]
@@ -44,10 +48,9 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     let us = get_time_us();
     let sec = us / MICRO_PER_SEC;
     let usec = us % MICRO_PER_SEC;
-    
+
     let token = current_user_token();
-    let ts_vec = translated_byte_buffer(token, ts as *const u8, 
-        core::mem::size_of::<TimeVal>());
+    let ts_vec = translated_byte_buffer(token, ts as *const u8, core::mem::size_of::<TimeVal>());
     if ts_vec.len() == 0 {
         return -1;
     }
@@ -64,16 +67,15 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     let token = current_user_token();
-    let ti_vec = translated_byte_buffer(token, ti as *const u8, 
-        core::mem::size_of::<TaskInfo>());
+    let ti_vec = translated_byte_buffer(token, ti as *const u8, core::mem::size_of::<TaskInfo>());
     if ti_vec.len() == 0 {
         return -1;
     }
     let ti = unsafe { (ti_vec[0].as_ptr() as *mut TaskInfo).as_mut().unwrap() };
-    
+
     let inner = TASK_MANAGER.inner.exclusive_access();
     let task = &inner.tasks[inner.current_task];
-    
+
     *ti = TaskInfo {
         status: task.task_status,
         syscall_times: [0; MAX_SYSCALL_NUM], // 需要额外实现系统调用计数
@@ -84,35 +86,48 @@ pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
 
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
+    // 基本参数检查
     if start % PAGE_SIZE != 0 {
         return -1;
     }
     if port & !0x7 != 0 || port & 0x7 == 0 {
         return -1;
     }
-    
+
     let mut permission = MapPermission::U;
-    if port & 1 != 0 { permission |= MapPermission::R; }
-    if port & 2 != 0 { permission |= MapPermission::W; }
-    if port & 4 != 0 { permission |= MapPermission::X; }
-    
+    if port & 1 != 0 {
+        permission |= MapPermission::R;
+    }
+    if port & 2 != 0 {
+        permission |= MapPermission::W;
+    }
+    if port & 4 != 0 {
+        permission |= MapPermission::X;
+    }
+
     let end = start + len;
     if end < start {
         return -1;
     }
-    
+
     let start_va: VirtAddr = VirtAddr::from(start);
     let end_va: VirtAddr = VirtAddr::from(end);
-    
+    let start_vpn = start_va.floor();
+    let end_vpn = end_va.ceil();
+
     let mut inner = TASK_MANAGER.inner.exclusive_access();
     let current = inner.current_task;
     let task = &mut inner.tasks[current];
-    
-    if !task.memory_set.check_valid_map_area(start_va, end_va) {
-        return -1;
+
+    // 检查是否与现有区域重叠
+    for area in task.memory_set.areas.iter() {
+        if area.vpn_range.get_start() < end_vpn && start_vpn < area.vpn_range.get_end() {
+            return -1;
+        }
     }
-    
-    task.memory_set.insert_framed_area(start_va, end_va, permission);
+
+    task.memory_set
+        .insert_framed_area(start_va, end_va, permission);
     0
 }
 
@@ -121,25 +136,24 @@ pub fn sys_munmap(start: usize, len: usize) -> isize {
     if start % PAGE_SIZE != 0 {
         return -1;
     }
-    
+
     let end = start + len;
     if end < start {
         return -1;
     }
-    
+
     let start_va: VirtAddr = VirtAddr::from(start);
     let end_va: VirtAddr = VirtAddr::from(end);
-    
+
     let mut inner = TASK_MANAGER.inner.exclusive_access();
     let current = inner.current_task;
     let task = &mut inner.tasks[current];
-    
+
     // 查找对应的 MapArea
-    if let Some(area) = task.memory_set.areas.iter_mut()
-        .find(|area| area.vpn_range.get_start() == start_va.floor() && 
-                     area.vpn_range.get_end() == end_va.floor()) {
+    if let Some(area) = task.memory_set.areas.iter_mut().find(|area| {
+        area.vpn_range.get_start() == start_va.floor() && area.vpn_range.get_end() == end_va.floor()
+    }) {
         area.unmap(&mut task.memory_set.page_table);
-   
     } else {
         return -1;
     }
