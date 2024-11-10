@@ -6,8 +6,7 @@ use crate::{
     loader::get_app_data_by_name,
     mm::{translated_refmut, translated_str},
     task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus,
+        add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next, TaskControlBlock, TaskStatus
     },
 };
 
@@ -167,18 +166,34 @@ pub fn sys_sbrk(size: i32) -> isize {
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
 pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+  let token = current_user_token();
+    // 从用户空间获取路径字符串
+    let path = translated_str(token, _path);
+    if path.is_empty() {
+        return -1;
+    }
+    
+    // 从应用管理器获取程序数据
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        // 创建新任务
+        let task = TaskControlBlock::new(data);
+        let pid = task.pid.0;
+        // 添加到任务管理器
+        add_task(Arc::new(task));
+        pid as isize
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _prio < 2 {
+        return -1;
+    }
+    
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.priority = _prio as usize;
+    _prio
 }
