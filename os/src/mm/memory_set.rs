@@ -35,12 +35,26 @@ lazy_static! {
 }
 /// address space
 pub struct MemorySet {
-    page_table: PageTable,
-    areas: Vec<MapArea>,
+    ///
+    pub page_table: PageTable,
+    ///
+    pub areas: Vec<MapArea>,
 }
 
 impl MemorySet {
+///
+          pub fn check_valid_map_area(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        for area in self.areas.iter() {
+            if area.vpn_range.get_start() < end_va.floor() && 
+               start_va.floor() < area.vpn_range.get_end() {
+                return false;
+            }
+        }
+        true
+    }
     /// Create a new empty `MemorySet`.
+
+    
     pub fn new_bare() -> Self {
         Self {
             page_table: PageTable::new(),
@@ -265,10 +279,10 @@ impl MemorySet {
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
-    vpn_range: VPNRange,
-    data_frames: BTreeMap<VirtPageNum, FrameTracker>,
-    map_type: MapType,
-    map_perm: MapPermission,
+    pub vpn_range: VPNRange,
+    pub data_frames: BTreeMap<VirtPageNum, FrameTracker>,
+    pub map_type: MapType,
+    pub map_perm: MapPermission,
 }
 
 impl MapArea {
