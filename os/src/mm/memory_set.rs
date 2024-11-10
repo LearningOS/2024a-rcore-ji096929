@@ -43,15 +43,29 @@ pub struct MemorySet {
 
 impl MemorySet {
 ///
-          pub fn check_valid_map_area(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
-        for area in self.areas.iter() {
-            if area.vpn_range.get_start() < end_va.floor() && 
-               start_va.floor() < area.vpn_range.get_end() {
-                return false;
-            }
-        }
-        true
+pub fn check_valid_map_area(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+    // 检查地址是否合法
+    if start_va.0 >= end_va.0 {
+        return false;
     }
+    
+    // 检查是否与已有区域重叠
+    for area in self.areas.iter() {
+        let area_start: VirtAddr = area.vpn_range.get_start().into();
+        let area_end: VirtAddr = area.vpn_range.get_end().into();
+        
+        // 检查重叠条件:
+        // 1. 新区域的开始在已有区域内
+        // 2. 新区域的结束在已有区域内
+        // 3. 新区域完全包含已有区域
+        if (start_va.0 >= area_start.0 && start_va.0 < area_end.0) ||
+           (end_va.0 > area_start.0 && end_va.0 <= area_end.0) ||
+           (start_va.0 <= area_start.0 && end_va.0 >= area_end.0) {
+            return false;
+        }
+    }
+    true
+}
     /// Create a new empty `MemorySet`.
 
     
